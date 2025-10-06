@@ -111,7 +111,7 @@
         <button class="btn btn-success" id="downloadByFilters">CSVダウンロード</button>
       </div>
 
-      <!-- プレビュー結果表示 -->
+      <!-- プレビュー結果表示（ページングUI付き） -->
       <div id="preview-area" class="mt-3" style="display:none;">
         <h6>プレビュー結果</h6>
         <div class="table-responsive">
@@ -120,7 +120,23 @@
             <tbody></tbody>
           </table>
         </div>
-        <p id="preview-count" class="text-muted small"></p>
+        <div class="d-flex justify-content-between align-items-center mt-2">
+          <div>
+            <button class="btn btn-outline-secondary btn-sm" id="pvPrev">← 前へ</button>
+            <span id="pvInfo" class="mx-2 small text-muted"></span>
+            <button class="btn btn-outline-secondary btn-sm" id="pvNext">次へ →</button>
+          </div>
+          <div class="input-group input-group-sm" style="width: 180px;">
+            <label class="input-group-text" for="pvPageSize">件数</label>
+            <select id="pvPageSize" class="form-select">
+              <option value="20">20</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </select>
+          </div>
+        </div>
+        <p id="preview-count" class="text-muted small mb-0"></p>
       </div>
     </div>
   </div>
@@ -169,14 +185,10 @@
     const pageSize = 10;
 
     // 詳細モーダル用の状態
-    const detailState = {
-      datasetId: null,
-      filterVal: "",
-      page: 1,
-      size: 20,
-      total: 0,
-      modal: null,
-    };
+    const detailState = { datasetId: null, filterVal: "", page: 1, size: 20, total: 0, modal: null };
+
+    // プレビュー用の状態
+    const previewState = { page: 1, size: 50, total: 0, pages: 0, filters: null };
 
     // ---------------------
     // 📤 アップロード
@@ -203,39 +215,38 @@
     });
 
     // ---------------------
-    // 🧩 URL生成ユーティリティ
+    // 🧩 URL生成（JSON時は page/size 付与可能）※唯一の定義
     // ---------------------
-    function buildFilterUrl(datasetId, filters, all = false, json = false) {
+    function buildFilterUrl(datasetId, filters, all = false, json = false, page, size) {
       const endpoint = all
         ? (json ? `${API_BASE}/download_all_json` : `${API_BASE}/download_all_csv`)
         : `${API_BASE}/${datasetId}/download_csv`;
 
       const url = new URL(endpoint);
-      if (filters.string) {
-        filters.string.forEach((f) => {
-          url.searchParams.append("filter_col", f.col);
-          url.searchParams.append("filter_val", f.val);
-        });
-      }
-      if (filters.number) {
-        filters.number.forEach((f) => {
-          url.searchParams.append("num_col", f.col);
-          url.searchParams.append("num_op", f.op);
-          url.searchParams.append("num_val", f.val);
-        });
-      }
-      if (filters.date) {
-        filters.date.forEach((f) => {
-          url.searchParams.append("date_col", f.col);
-          if (f.from) url.searchParams.append("date_from", f.from);
-          if (f.to) url.searchParams.append("date_to", f.to);
-        });
+      if (filters?.string) filters.string.forEach(f => {
+        url.searchParams.append("filter_col", f.col);
+        url.searchParams.append("filter_val", f.val);
+      });
+      if (filters?.number) filters.number.forEach(f => {
+        url.searchParams.append("num_col", f.col);
+        url.searchParams.append("num_op", f.op);
+        url.searchParams.append("num_val", f.val);
+      });
+      if (filters?.date) filters.date.forEach(f => {
+        url.searchParams.append("date_col", f.col);
+        if (f.from) url.searchParams.append("date_from", f.from);
+        if (f.to) url.searchParams.append("date_to", f.to);
+      });
+
+      if (json && all) {
+        url.searchParams.append("page", page ?? 1);
+        url.searchParams.append("size", size ?? 50);
       }
       return url.toString();
     }
 
     // ---------------------
-    // 🔍 検索条件取得
+    // 🔍 検索条件取得 ※唯一の定義
     // ---------------------
     function getFilters() {
       const nameVal = document.getElementById("filter-name").value.trim();
@@ -258,44 +269,83 @@
     }
 
     // ---------------------
-    // 🔍 プレビュー（全CSV横断）
+    // 🔍 プレビュー（全CSV横断・ページング）
     // ---------------------
-    document.getElementById("previewByFilters").addEventListener("click", async () => {
-      if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
+    async function loadPreviewPage() {
+      const area = document.getElementById("preview-area");
+      const thead = document.querySelector("#preview-table thead");
+      const tbody = document.querySelector("#preview-table tbody");
+      const info = document.getElementById("pvInfo");
+      const btnPrev = document.getElementById("pvPrev");
+      const btnNext = document.getElementById("pvNext");
 
-      const filters = getFilters();
-      const url = buildFilterUrl(null, filters, true, true); // JSONエンドポイント
+      const url = buildFilterUrl(null, previewState.filters, true, true, previewState.page, previewState.size);
 
       try {
         const res = await fetch(url);
         const data = await res.json();
 
-        const area = document.getElementById("preview-area");
-        const thead = document.querySelector("#preview-table thead");
-        const tbody = document.querySelector("#preview-table tbody");
-
-        if (!res.ok || !data.data?.length) {
-          area.style.display = "block";
+        if (!res.ok || !data.data) {
           thead.innerHTML = "";
           tbody.innerHTML = "";
           document.getElementById("preview-count").textContent = "該当データはありません。";
+          area.style.display = "block";
+          btnPrev.disabled = btnNext.disabled = true;
+          info.textContent = "";
           return;
         }
 
         const rows = data.data;
-        const customOrder = ["日付", "部署", "社員名", "金額", "勘定科目", "備考"];
-        const headers = customOrder.filter((h) => Object.keys(rows[0]).includes(h));
+        previewState.total = data.meta?.total ?? rows.length;
+        previewState.pages = data.meta?.pages ?? 1;
 
-        thead.innerHTML = `<tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr>`;
-        tbody.innerHTML = rows
-          .map((r) => `<tr>${headers.map((h) => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`)
-          .join("");
-        document.getElementById("preview-count").textContent = `表示件数：${rows.length} 件`;
+        const customOrder = ["日付", "部署", "社員名", "金額", "勘定科目", "備考"];
+        const headers = rows[0] ? customOrder.filter(h => Object.keys(rows[0]).includes(h)) : customOrder;
+
+        thead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
+        tbody.innerHTML = rows.map(r =>
+          `<tr>${headers.map(h => `<td>${r?.[h] ?? ""}</td>`).join("")}</tr>`
+        ).join("");
+
+        info.textContent = `ページ ${previewState.page} / ${previewState.pages}（全 ${previewState.total} 件）`;
+        btnPrev.disabled = previewState.page <= 1;
+        btnNext.disabled = previewState.page >= previewState.pages;
+
+        document.getElementById("preview-count").textContent =
+          `表示件数：${rows.length} 件（1ページあたり ${previewState.size} 件）`;
         area.style.display = "block";
-      } catch (err) {
+      } catch (e) {
         alert("プレビューの取得に失敗しました。");
-        console.error(err);
+        console.error(e);
       }
+    }
+
+    // 「プレビュー表示」クリック → 1ページ目から読込（※リスナーは1つだけ）
+    document.getElementById("previewByFilters").addEventListener("click", async () => {
+      if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
+      previewState.filters = getFilters();
+      previewState.page = 1;
+      previewState.size = parseInt(document.getElementById("pvPageSize").value, 10) || 50;
+      await loadPreviewPage();
+    });
+
+    // プレビューページング操作
+    document.getElementById("pvPrev").addEventListener("click", async () => {
+      if (previewState.page > 1) {
+        previewState.page -= 1;
+        await loadPreviewPage();
+      }
+    });
+    document.getElementById("pvNext").addEventListener("click", async () => {
+      if (previewState.page < previewState.pages) {
+        previewState.page += 1;
+        await loadPreviewPage();
+      }
+    });
+    document.getElementById("pvPageSize").addEventListener("change", async (e) => {
+      previewState.size = parseInt(e.target.value, 10) || 50;
+      previewState.page = 1;
+      await loadPreviewPage();
     });
 
     // ---------------------
@@ -303,18 +353,17 @@
     // ---------------------
     document.getElementById("downloadByFilters").addEventListener("click", () => {
       if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
-      const filters = getFilters();
-      const url = buildFilterUrl(null, filters, true, false); // CSVエンドポイント
+      const url = buildFilterUrl(null, getFilters(), true, false); // CSV
       window.open(url, "_blank");
     });
 
     // ---------------------
-    // 📋 一覧取得・ページング
+    // 📋 一覧取得・ページング（アップロード履歴）
     // ---------------------
     async function loadExpenses() {
       const res = await fetch(API_BASE + "/");
       const json = await res.json();
-      allData = Array.isArray(json) ? json : json.data || [];
+      allData = Array.isArray(json) ? json : (json.data || []);
       currentPage = 1;
       renderListTable();
     }
@@ -410,14 +459,12 @@
         `ページ ${page} / ${Math.ceil(Math.max(detailState.total, 1) / size)}（全 ${detailState.total} 件）`;
     }
 
-    // モーダルの各操作
     document.getElementById("detailPrev").addEventListener("click", async () => {
       if (detailState.page > 1) {
         detailState.page -= 1;
         await loadDetailPage();
       }
     });
-
     document.getElementById("detailNext").addEventListener("click", async () => {
       const maxPage = Math.ceil(Math.max(detailState.total, 1) / detailState.size);
       if (detailState.page < maxPage) {
@@ -425,20 +472,16 @@
         await loadDetailPage();
       }
     });
-
     document.getElementById("detailPageSize").addEventListener("change", async (e) => {
       detailState.size = parseInt(e.target.value, 10) || 20;
       detailState.page = 1;
       await loadDetailPage();
     });
 
-    // （任意）詳細表示中のCSVダウンロード：現在の dataset の全件を対象
+    // 詳細表示中のCSVダウンロード（社員名フィルタのみ反映）
     document.getElementById("downloadFilteredCSV").addEventListener("click", () => {
       if (!detailState.datasetId) return;
-      // ここではモーダルのフィルタ（社員名）だけ反映
-      const filters = {
-        string: detailState.filterVal ? [{ col: "社員名", val: detailState.filterVal }] : [],
-      };
+      const filters = { string: detailState.filterVal ? [{ col: "社員名", val: detailState.filterVal }] : [] };
       const url = buildFilterUrl(detailState.datasetId, filters, false, false);
       window.open(url, "_blank");
     });
@@ -459,11 +502,18 @@
     function downloadCSV(id) {
       window.open(`${API_BASE}/${id}/download`, "_blank");
     }
-    window.downloadCSV = downloadCSV; // onclick から参照できるように
+    window.downloadCSV = downloadCSV; // onclick から参照可
 
     // ---------------------
     // 初期ロード
     // ---------------------
+    async function loadExpenses() {
+      const res = await fetch(API_BASE + "/");
+      const json = await res.json();
+      allData = Array.isArray(json) ? json : (json.data || []);
+      currentPage = 1;
+      renderListTable();
+    }
     loadExpenses();
   </script>
 </body>
