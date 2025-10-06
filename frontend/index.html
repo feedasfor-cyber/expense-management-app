@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Expense Management Frontend</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  >
+</head>
+<body class="bg-light p-4">
+  <div class="container">
+    <h1 class="mb-4">💼 経費精算アップローダー</h1>
+
+    <!-- アップロードフォーム -->
+    <div class="card p-3 mb-4">
+      <h5>CSVアップロード</h5>
+      <form id="upload-form">
+        <input type="file" id="csv-file" accept=".csv" class="form-control mb-3" required>
+        <button class="btn btn-primary" type="submit">アップロード</button>
+      </form>
+      <div id="upload-status" class="mt-3"></div>
+    </div>
+
+    <!-- 一覧表示 -->
+    <div class="card p-3">
+      <h5>アップロード履歴</h5>
+      <table class="table table-striped mt-3" id="expense-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>ファイル名</th>
+            <th>行数</th>
+            <th>アップロード日時</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="expense-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 詳細モーダル -->
+  <div class="modal fade" id="detailModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">明細表示</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body" id="detail-body">
+          <p>読み込み中...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000/api/expenses";
+
+    // =======================
+    // CSVアップロード
+    // =======================
+    document.getElementById("upload-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fileInput = document.getElementById("csv-file");
+      if (!fileInput.files.length) return alert("CSVを選択してください");
+
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+
+      const res = await fetch(API_BASE + "/", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await res.json();
+      document.getElementById("upload-status").innerHTML =
+        res.ok ? `<span class="text-success">✅ アップロード成功: ${data.file}</span>`
+               : `<span class="text-danger">❌ 失敗: ${data.detail}</span>`;
+
+      loadExpenses();
+    });
+
+    // =======================
+    // 一覧読み込み
+    // =======================
+    async function loadExpenses() {
+      const res = await fetch(API_BASE + "/");
+      const data = await res.json();
+
+      const tbody = document.getElementById("expense-body");
+      tbody.innerHTML = "";
+
+      data.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.file_name}</td>
+          <td>${item.row_count}</td>
+          <td>${item.uploaded_at}</td>
+          <td>
+            <button class="btn btn-sm btn-info me-1" onclick="showDetails(${item.id})">詳細</button>
+            <button class="btn btn-sm btn-success" onclick="downloadCSV(${item.id})">DL</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // =======================
+    // 明細モーダル
+    // =======================
+    async function showDetails(id) {
+      const res = await fetch(`${API_BASE}/${id}`);
+      const data = await res.json();
+      const modalBody = document.getElementById("detail-body");
+
+      if (!res.ok) {
+        modalBody.innerHTML = `<p class="text-danger">エラー: ${data.detail}</p>`;
+        return;
+      }
+
+      const headers = Object.keys(data.data[0] || {});
+      const rows = data.data.map(row =>
+        `<tr>${headers.map(h => `<td>${row[h] || ""}</td>`).join("")}</tr>`
+      ).join("");
+
+      modalBody.innerHTML = `
+        <table class="table table-bordered">
+          <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+
+      new bootstrap.Modal(document.getElementById("detailModal")).show();
+    }
+
+    // =======================
+    // ダウンロード
+    // =======================
+    function downloadCSV(id) {
+      window.open(`${API_BASE}/${id}/download`, "_blank");
+    }
+
+    // =======================
+    // 初期ロード
+    // =======================
+    loadExpenses();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
