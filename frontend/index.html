@@ -10,7 +10,9 @@
   <div class="container">
     <h1 class="mb-4">💼 経費精算アップローダー</h1>
 
-    <!-- アップロードフォーム -->
+    <!-- ===================== -->
+    <!-- 📤 CSVアップロード -->
+    <!-- ===================== -->
     <div class="card p-3 mb-4">
       <h5>CSVアップロード</h5>
       <form id="upload-form">
@@ -20,12 +22,14 @@
       <div id="upload-status" class="mt-3"></div>
     </div>
 
-    <!-- 一覧表示 -->
+    <!-- ===================== -->
+    <!-- 📋 アップロード履歴 -->
+    <!-- ===================== -->
     <div class="card p-3">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h5 class="mb-0">アップロード履歴</h5>
 
-        <!-- 🔍 検索フォーム（最新データセットを対象に） -->
+        <!-- 🔍 社員名検索フォーム -->
         <div class="input-group" style="width: 300px;">
           <input type="text" id="search-name" class="form-control" placeholder="社員名で検索">
           <button class="btn btn-outline-primary" id="search-btn">検索</button>
@@ -45,7 +49,7 @@
         <tbody id="expense-body"></tbody>
       </table>
 
-      <!-- ページネーション（一覧） -->
+      <!-- ページネーション -->
       <div class="d-flex justify-content-between align-items-center mt-3">
         <button class="btn btn-outline-secondary btn-sm" id="prevPage">← 前へ</button>
         <span id="pageInfo" class="fw-bold"></span>
@@ -54,50 +58,56 @@
     </div>
   </div>
 
-  <!-- 詳細モーダル -->
+  <!-- ===================== -->
+  <!-- 📄 詳細モーダル -->
+  <!-- ===================== -->
   <div class="modal fade" id="detailModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">明細表示</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
 
         <div class="modal-body" id="detail-body">
           <p>読み込み中...</p>
         </div>
 
-        <!-- 🔽 モーダル用ページネーション -->
+        <!-- 🔽 モーダル用ページネーション＆CSV -->
         <div class="modal-footer d-flex justify-content-between align-items-center">
           <div>
             <button class="btn btn-outline-secondary btn-sm" id="detailPrev">← 前へ</button>
             <span id="detailPageInfo" class="mx-2 small text-muted"></span>
             <button class="btn btn-outline-secondary btn-sm" id="detailNext">次へ →</button>
           </div>
-          <div class="input-group input-group-sm" style="width: 180px;">
-            <label class="input-group-text" for="detailPageSize">件数</label>
-            <select id="detailPageSize" class="form-select">
-              <option value="10">10</option>
-              <option value="20" selected>20</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
+
+          <!-- ✅ CSVダウンロード -->
+          <div class="d-flex align-items-center">
+            <button class="btn btn-outline-success btn-sm me-2" id="downloadFilteredCSV">CSVダウンロード</button>
+            <div class="input-group input-group-sm" style="width: 180px;">
+              <label class="input-group-text" for="detailPageSize">件数</label>
+              <select id="detailPageSize" class="form-select">
+                <option value="10">10</option>
+                <option value="20" selected>20</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
           </div>
         </div>
-        <!-- ▲ モーダル用ページネーション -->
       </div>
     </div>
   </div>
 
+  <!-- ===================== -->
+  <!-- 💻 JavaScript -->
+  <!-- ===================== -->
   <script>
     const API_BASE = "http://127.0.0.1:8000/api/expenses";
-
-    // 一覧の状態（フロントのみのページング）
     let allData = [];
     let currentPage = 1;
     const pageSize = 10;
 
-    // モーダル（詳細）の状態（サーバ連携ページング）
     const detailState = {
       datasetId: null,
       filterVal: "",
@@ -107,9 +117,9 @@
       modal: null
     };
 
-    // =======================
-    // CSVアップロード
-    // =======================
+    // -----------------------
+    // 📤 CSVアップロード処理
+    // -----------------------
     document.getElementById("upload-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const fileInput = document.getElementById("csv-file");
@@ -127,14 +137,14 @@
           : `<span class="text-danger">❌ 失敗: ${data.detail}</span>`;
 
       if (res.ok) {
-        await loadExpenses();             // 一覧更新
-        await showDetails(data.dataset_id); // 自動でモーダル表示
+        await loadExpenses();
+        await showDetails(data.dataset_id);
       }
     });
 
-    // =======================
-    // 一覧取得（全件）
-    // =======================
+    // -----------------------
+    // 📋 一覧取得＆ページング
+    // -----------------------
     async function loadExpenses() {
       const res = await fetch(API_BASE + "/");
       allData = await res.json();
@@ -142,14 +152,11 @@
       renderListTable();
     }
 
-    // 一覧のテーブル描画（クライアント側で10件ずつ）
     function renderListTable() {
       const tbody = document.getElementById("expense-body");
       tbody.innerHTML = "";
-
       const start = (currentPage - 1) * pageSize;
-      const end = start + pageSize;
-      const pageData = allData.slice(start, end);
+      const pageData = allData.slice(start, start + pageSize);
 
       pageData.forEach(item => {
         const tr = document.createElement("tr");
@@ -172,48 +179,34 @@
       document.getElementById("nextPage").disabled = currentPage >= totalPages;
     }
 
-    // 一覧のページ送り
     document.getElementById("prevPage").addEventListener("click", () => {
-      if (currentPage > 1) {
-        currentPage--;
-        renderListTable();
-      }
+      if (currentPage > 1) { currentPage--; renderListTable(); }
     });
     document.getElementById("nextPage").addEventListener("click", () => {
       const totalPages = Math.ceil(allData.length / pageSize) || 1;
-      if (currentPage < totalPages) {
-        currentPage++;
-        renderListTable();
-      }
+      if (currentPage < totalPages) { currentPage++; renderListTable(); }
     });
 
-    // =======================
-    // 明細モーダル（検索＆ページング対応）
-    // =======================
+    // -----------------------
+    // 📄 明細モーダル関連
+    // -----------------------
     async function showDetails(datasetId, filterVal = "") {
-      // state 初期化
       detailState.datasetId = datasetId;
       detailState.filterVal  = filterVal;
-      detailState.page = 1;  // 新規表示時は先頭ページ
+      detailState.page = 1;
       detailState.size = parseInt(document.getElementById("detailPageSize").value, 10) || 20;
-
-      // 初回ロード
       await loadDetailPage();
 
-      // モーダル開く
-      if (!detailState.modal) {
+      if (!detailState.modal)
         detailState.modal = new bootstrap.Modal(document.getElementById("detailModal"));
-      }
       detailState.modal.show();
     }
 
-    // 指定ページをサーバから取得してモーダルに描画
     async function loadDetailPage() {
       const { datasetId, filterVal, page, size } = detailState;
       let url = `${API_BASE}/${datasetId}?page=${page}&size=${size}`;
-      if (filterVal) {
+      if (filterVal)
         url += `&filter_col=${encodeURIComponent("社員名")}&filter_val=${encodeURIComponent(filterVal)}`;
-      }
 
       const res = await fetch(url);
       const data = await res.json();
@@ -221,28 +214,19 @@
 
       if (!res.ok) {
         modalBody.innerHTML = `<p class="text-danger">エラー: ${data.detail}</p>`;
-        updateDetailPager(0); // ページャ更新（無効化）
+        updateDetailPager(0);
         return;
       }
 
-      // メタ情報（総件数など）
-      const meta = data.meta || {};
-      detailState.total = meta.total_rows || 0;
-
+      detailState.total = (data.meta?.total_rows) || 0;
       const rows = data.data || [];
+
       if (!rows.length) {
-        // ページを超過した可能性 → 最終ページに調整して再取得
-        const last = Math.max(1, Math.ceil(detailState.total / detailState.size));
-        if (detailState.page > last) {
-          detailState.page = last;
-          return loadDetailPage();
-        }
         modalBody.innerHTML = `<p>該当するデータがありません。</p>`;
         updateDetailPager(detailState.total);
         return;
       }
 
-      // テーブル描画
       const headers = Object.keys(rows[0]);
       modalBody.innerHTML = `
         <table class="table table-bordered table-sm">
@@ -254,7 +238,6 @@
       updateDetailPager(detailState.total);
     }
 
-    // モーダルのページャ表示・活性制御
     function updateDetailPager(total) {
       const totalPages = Math.max(1, Math.ceil(total / detailState.size));
       document.getElementById("detailPageInfo").textContent =
@@ -263,39 +246,70 @@
       document.getElementById("detailNext").disabled = detailState.page >= totalPages;
     }
 
-    // モーダルのページ送り
     document.getElementById("detailPrev").addEventListener("click", async () => {
-      if (detailState.page > 1) {
-        detailState.page--;
-        await loadDetailPage();
-      }
+      if (detailState.page > 1) { detailState.page--; await loadDetailPage(); }
     });
     document.getElementById("detailNext").addEventListener("click", async () => {
-      const totalPages = Math.max(1, Math.ceil(detailState.total / detailState.size));
-      if (detailState.page < totalPages) {
-        detailState.page++;
-        await loadDetailPage();
-      }
+      const totalPages = Math.ceil(detailState.total / detailState.size);
+      if (detailState.page < totalPages) { detailState.page++; await loadDetailPage(); }
     });
-
-    // モーダル件数変更
     document.getElementById("detailPageSize").addEventListener("change", async (e) => {
-      detailState.size = parseInt(e.target.value, 10) || 20;
-      detailState.page = 1; // 件数変えたら先頭ページに
+      detailState.size = parseInt(e.target.value, 10);
+      detailState.page = 1;
       await loadDetailPage();
     });
 
-    // 🔍 検索（最新データセットを対象）
+    // -----------------------
+    // 🔍 検索（社員名）
+    // -----------------------
     document.getElementById("search-btn").addEventListener("click", async () => {
       const keyword = document.getElementById("search-name").value.trim();
       if (!keyword) return alert("社員名を入力してください");
       if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
 
-      const latestId = allData[0].id;  // 例: 最新のデータセットで検索
+      const latestId = allData[0].id;
       await showDetails(latestId, keyword);
     });
 
-    // ダウンロード（データセット全体）
+    // -----------------------
+    // ⬇️ 検索結果をCSVダウンロード
+    // -----------------------
+    document.getElementById("downloadFilteredCSV").addEventListener("click", async () => {
+      const { datasetId, filterVal } = detailState;
+      if (!datasetId) return alert("まだデータセットが選択されていません。");
+
+      let url = `${API_BASE}/${datasetId}?page=1&size=10000`;
+      if (filterVal)
+        url += `&filter_col=${encodeURIComponent("社員名")}&filter_val=${encodeURIComponent(filterVal)}`;
+
+      const res = await fetch(url);
+      if (!res.ok) return alert("データの取得に失敗しました。");
+
+      const data = await res.json();
+      const rows = data.data;
+      if (!rows?.length) return alert("エクスポート対象のデータがありません。");
+
+      const headers = Object.keys(rows[0]);
+      const csvContent = [
+        headers.join(","),
+        ...rows.map(r => headers.map(h => `"${(r[h] ?? "").replace(/"/g, '""')}"`).join(","))
+      ].join("\n");
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const urlObj = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = urlObj;
+      const timestamp = new Date().toISOString().replace(/[:.-]/g, "");
+      link.download = `filtered_expenses_${timestamp}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(urlObj);
+    });
+
+    // -----------------------
+    // 📦 全データDL
+    // -----------------------
     function downloadCSV(id) {
       window.open(`${API_BASE}/${id}/download`, "_blank");
     }
