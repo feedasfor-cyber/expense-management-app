@@ -1,20 +1,42 @@
 # app/models.py
-CREATE_TABLES_SQL = """
-CREATE TABLE IF NOT EXISTS expense_datasets (
-    id SERIAL PRIMARY KEY,
-    file_name TEXT NOT NULL,
-    row_count INT NOT NULL,
-    uploaded_at TIMESTAMP DEFAULT NOW(),
-    uploader TEXT,
-    original_path TEXT
-);
+from sqlalchemy import (
+    Column, Integer, Text, TIMESTAMP, ForeignKey, func, Index
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import relationship
+from .db import Base
 
-CREATE TABLE IF NOT EXISTS expense_rows (
-    id SERIAL PRIMARY KEY,
-    dataset_id INT NOT NULL REFERENCES expense_datasets(id) ON DELETE CASCADE,
-    row_data JSONB NOT NULL
-);
+# アップロードされたCSVのメタ情報
+class ExpenseDataset(Base):
+    __tablename__ = "expense_datasets"
 
--- よく使う列に対してJSONBのPathOpsで検索を速くしたい場合の例（任意）
--- CREATE INDEX IF NOT EXISTS idx_expense_rows_row_data ON expense_rows USING GIN (row_data);
-"""
+    id = Column(Integer, primary_key=True, index=True)
+    file_name = Column(Text, nullable=False)
+    row_count = Column(Integer, nullable=False)
+    uploader = Column(Text)
+    original_path = Column(Text, nullable=False)
+    uploaded_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    branch_name = Column(Text)  # 例：大阪支店
+    period = Column(Text)       # 例：2025-10
+
+    rows = relationship("ExpenseRow", back_populates="dataset", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_expense_datasets_period", "period"),
+        Index("idx_expense_datasets_branch", "branch_name"),
+    )
+
+# 各CSVの行データ（JSON形式で保存）
+class ExpenseRow(Base):
+    __tablename__ = "expense_rows"
+
+    id = Column(Integer, primary_key=True, index=True)
+    dataset_id = Column(Integer, ForeignKey("expense_datasets.id", ondelete="CASCADE"), nullable=False)
+    row_data = Column(JSONB, nullable=False)
+
+    dataset = relationship("ExpenseDataset", back_populates="rows")
+
+    __table_args__ = (
+        Index("idx_expense_rows_dataset", "dataset_id"),
+        Index("idx_expense_rows_rowdata", "row_data", postgresql_using="gin"),
+    )

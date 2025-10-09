@@ -2,22 +2,37 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <title>Expense Management Frontend</title>
+  <title>小口現金管理ツール（支店別・対象月別）</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </head>
 <body class="bg-light p-4">
   <div class="container">
-    <h1 class="mb-4">💼 経費精算アップローダー</h1>
+    <h1 class="mb-4">🏢 小口現金アップローダー（支店別・対象月別）</h1>
 
     <!-- ===================== -->
     <!-- 📤 CSVアップロード -->
     <!-- ===================== -->
     <div class="card p-3 mb-4">
-      <h5>CSVアップロード</h5>
+      <h5>📤 小口現金CSVアップロード</h5>
       <form id="upload-form">
-        <input type="file" id="csv-file" accept=".csv" class="form-control mb-3" required />
-        <button class="btn btn-primary" type="submit">アップロード</button>
+        <div class="row g-3 align-items-end">
+          <div class="col-md-4">
+            <label for="branch-name" class="form-label">支店名</label>
+            <input type="text" id="branch-name" class="form-control" placeholder="例：大阪支店" required />
+          </div>
+          <div class="col-md-3">
+            <label for="period" class="form-label">対象月</label>
+            <input type="month" id="period" class="form-control" required />
+          </div>
+          <div class="col-md-5">
+            <label for="csv-file" class="form-label">CSVファイル</label>
+            <input type="file" id="csv-file" accept=".csv" class="form-control" required />
+          </div>
+        </div>
+        <div class="text-end mt-3">
+          <button class="btn btn-primary" type="submit">アップロード</button>
+        </div>
       </form>
       <div id="upload-status" class="mt-3"></div>
     </div>
@@ -27,10 +42,11 @@
     <!-- ===================== -->
     <div class="card p-3 mb-4">
       <div class="d-flex justify-content-between align-items-center mb-2">
-        <h5 class="mb-0">アップロード履歴</h5>
-        <div class="input-group" style="width:300px;">
-          <input type="text" id="search-name" class="form-control" placeholder="社員名で検索" />
-          <button class="btn btn-outline-primary" id="search-btn">検索</button>
+        <h5 class="mb-0">📋 アップロード履歴</h5>
+        <div class="d-flex gap-2">
+          <input type="text" id="history-branch" class="form-control" style="width: 150px;" placeholder="支店名" />
+          <input type="month" id="history-period" class="form-control" style="width: 150px;" />
+          <button class="btn btn-outline-primary" id="reload-history">🔄 更新</button>
         </div>
       </div>
 
@@ -38,6 +54,8 @@
         <thead>
           <tr>
             <th>ID</th>
+            <th>支店名</th>
+            <th>対象月</th>
             <th>ファイル名</th>
             <th>件数</th>
             <th>アップロード日時</th>
@@ -58,28 +76,21 @@
     <!-- 🔍 フィルタ検索＋プレビュー -->
     <!-- ===================== -->
     <div class="card p-3 mt-4">
-      <h5>🔍 検索条件を指定してプレビューまたはCSVをダウンロード</h5>
+      <h5>🔍 支店名・対象月で検索してプレビュー／CSVダウンロード</h5>
 
       <div class="row g-3 align-items-end mt-2">
-        <!-- 社員名 -->
-        <div class="col-md-4">
-          <label class="form-label">社員名（カンマ区切りで複数指定可）</label>
-          <input type="text" id="filter-name" class="form-control" placeholder="例：山田,田中" />
+        <div class="col-md-3">
+          <label class="form-label">支店名</label>
+          <input type="text" id="filter-branch" class="form-control" placeholder="例：東京支店" />
         </div>
-
-        <!-- 部署 -->
-        <div class="col-md-4">
-          <label class="form-label">部署</label>
-          <input type="text" id="filter-dept" class="form-control" placeholder="例：営業部,総務部" />
+        <div class="col-md-3">
+          <label class="form-label">対象月</label>
+          <input type="month" id="filter-period" class="form-control" />
         </div>
-
-        <!-- 勘定科目 -->
-        <div class="col-md-4">
+        <div class="col-md-3">
           <label class="form-label">勘定科目</label>
           <input type="text" id="filter-account" class="form-control" placeholder="例：旅費交通費,会議費" />
         </div>
-
-        <!-- 金額 -->
         <div class="col-md-4">
           <label class="form-label">金額（数値条件）</label>
           <div class="input-group">
@@ -94,8 +105,6 @@
             <input type="text" id="filter-num-val" class="form-control" placeholder="例：10000 または 5000,20000" />
           </div>
         </div>
-
-        <!-- 日付範囲 -->
         <div class="col-md-4">
           <label class="form-label">日付範囲</label>
           <div class="input-group">
@@ -108,50 +117,57 @@
 
       <div class="mt-3 text-end">
         <button class="btn btn-outline-primary me-2" id="previewByFilters">🔍 プレビュー表示</button>
-        <button class="btn btn-success" id="downloadByFilters">CSVダウンロード</button>
+        <button class="btn btn-success" id="downloadByFilters">💾 CSVダウンロード</button>
       </div>
+    </div>
 
-      <!-- プレビュー結果表示（ページングUI付き） -->
-      <div id="preview-area" class="mt-3" style="display:none;">
-        <h6>プレビュー結果</h6>
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm" id="preview-table">
-            <thead></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div class="d-flex justify-content-between align-items-center mt-2">
-          <div>
-            <button class="btn btn-outline-secondary btn-sm" id="pvPrev">← 前へ</button>
-            <span id="pvInfo" class="mx-2 small text-muted"></span>
-            <button class="btn btn-outline-secondary btn-sm" id="pvNext">次へ →</button>
-          </div>
-          <div class="input-group input-group-sm" style="width: 180px;">
-            <label class="input-group-text" for="pvPageSize">件数</label>
-            <select id="pvPageSize" class="form-select">
-              <option value="20">20</option>
-              <option value="50" selected>50</option>
-              <option value="100">100</option>
-              <option value="200">200</option>
-            </select>
-          </div>
-        </div>
-        <p id="preview-count" class="text-muted small mb-0"></p>
+    <!-- ===================== -->
+    <!-- 📊 プレビュー表示 -->
+    <!-- ===================== -->
+    <div id="preview-area" class="mt-3" style="display:none;">
+      <h6>📊 プレビュー結果（支店別・対象月別）</h6>
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm" id="preview-table">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
       </div>
+      <div class="d-flex justify-content-between align-items-center mt-2">
+        <div>
+          <button class="btn btn-outline-secondary btn-sm" id="pvPrev">← 前へ</button>
+          <span id="pvInfo" class="mx-2 small text-muted"></span>
+          <button class="btn btn-outline-secondary btn-sm" id="pvNext">次へ →</button>
+        </div>
+        <div class="input-group input-group-sm" style="width: 180px;">
+          <label class="input-group-text" for="pvPageSize">件数</label>
+          <select id="pvPageSize" class="form-select">
+            <option value="20">20</option>
+            <option value="50" selected>50</option>
+            <option value="100">100</option>
+            <option value="200">200</option>
+          </select>
+        </div>
+      </div>
+      <p id="preview-count" class="text-muted small mb-0"></p>
     </div>
   </div>
 
   <!-- ===================== -->
-  <!-- 📄 詳細モーダル -->
+  <!-- 🧾 詳細モーダル -->
   <!-- ===================== -->
   <div class="modal fade" id="detailModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
       <div class="modal-content">
         <div class="modal-header">
-          <h5 class="modal-title">明細表示</h5>
+          <h5 class="modal-title">
+            🧾 明細表示 <span id="detail-branch" class="text-primary"></span>
+            <small class="text-muted" id="detail-period"></small>
+          </h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-        <div class="modal-body" id="detail-body"><p>読み込み中...</p></div>
+        <div class="modal-body" id="detail-body">
+          <p>読み込み中...</p>
+        </div>
         <div class="modal-footer d-flex justify-content-between align-items-center">
           <div>
             <button class="btn btn-outline-secondary btn-sm" id="detailPrev">← 前へ</button>
@@ -180,188 +196,137 @@
   <!-- ===================== -->
   <script>
     const API_BASE = "http://127.0.0.1:8000/api/expenses";
+
+    // 🧾 認証ポップアップを確実に出す
+    (async () => {
+  const apiRoot = "http://127.0.0.1:8000/";
+  const thisPage = window.location.href;
+
+  const res = await fetch(apiRoot);
+
+  if (res.status === 401) {
+    // 認証が必要なら、認証ポップアップを出すためにAPIルートへ飛ぶ
+    // 認証後、自動で元のページに戻るようにする
+    window.location = apiRoot + "?redirect=" + encodeURIComponent(thisPage);
+  }
+})();
+
     let allData = [];
     let currentPage = 1;
     const pageSize = 10;
-
-    // 詳細モーダル用の状態
-    const detailState = { datasetId: null, filterVal: "", page: 1, size: 20, total: 0, modal: null };
-
-    // プレビュー用の状態
+    const detailState = { datasetId: null, filterVal: "", page: 1, size: 20, total: 0, modal: null, metaBranch: null, metaPeriod: null };
     const previewState = { page: 1, size: 50, total: 0, pages: 0, filters: null };
 
-    // ---------------------
-    // 📤 アップロード
-    // ---------------------
-    document.getElementById("upload-form").addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const fileInput = document.getElementById("csv-file");
-      if (!fileInput.files.length) return alert("CSVを選択してください");
+// 🧾 Basic認証ヘッダーを明示的に付与
+const BASIC_AUTH_HEADER = "Basic " + btoa("admin:secret123");
 
-      const formData = new FormData();
-      formData.append("file", fileInput.files[0]);
+async function apiFetch(url, options = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      Authorization: BASIC_AUTH_HEADER,   // ← ★ ここでBasic認証を送る
+    },
+    credentials: "include",               // ← ★ これも残す
+  });
+}
 
-      const res = await fetch(API_BASE + "/", { method: "POST", body: formData });
-      const data = await res.json();
+// =========================
+// 📤 アップロード処理
+// =========================
+document.getElementById("upload-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
-      document.getElementById("upload-status").innerHTML = res.ok
-        ? `<span class="text-success">✅ ${data.file} をアップロードしました</span>`
-        : `<span class="text-danger">❌ ${data.detail}</span>`;
+  const branch = document.getElementById("branch-name").value.trim();
+  const period = document.getElementById("period").value;
+  const file = document.getElementById("csv-file").files[0];
 
-      if (res.ok) {
-        await loadExpenses();
-        await showDetails(data.dataset_id);
-      }
+  if (!branch || !period || !file) {
+    document.getElementById("upload-status").innerHTML = `<p class="text-danger">支店名・対象月・ファイルは必須です。</p>`;
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("branch_name", branch);
+  formData.append("period", period);
+  formData.append("file", file);
+
+  try {
+    const res = await fetch(`${API_BASE}/`, {
+      method: "POST",
+      body: formData,
+      headers: {
+        Authorization: BASIC_AUTH_HEADER,  // Basic認証
+      },
     });
 
-    // ---------------------
-    // 🧩 URL生成（JSON時は page/size 付与可能）※唯一の定義
-    // ---------------------
-    function buildFilterUrl(datasetId, filters, all = false, json = false, page, size) {
-      const endpoint = all
-        ? (json ? `${API_BASE}/download_all_json` : `${API_BASE}/download_all_csv`)
-        : `${API_BASE}/${datasetId}/download_csv`;
+    const data = await res.json();
 
+    if (!res.ok) {
+      document.getElementById("upload-status").innerHTML =
+        `<p class="text-danger">❌ ${data.detail || "アップロードに失敗しました。「CSVファイル（10MB以下）のみアップロード可能です」"}</p>`;
+      return;
+    }
+
+    document.getElementById("upload-status").innerHTML =
+      `<p class="text-success">✅ アップロード成功：${data.file}（${data.row_count} 件）</p>`;
+
+    await loadExpenses(); // 履歴テーブルを更新
+    document.getElementById("upload-form").reset();
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById("upload-status").innerHTML =
+      `<p class="text-danger">❌ 通信エラーが発生しました。</p>`;
+  }
+});
+
+
+    // =======================
+    // フィルタ URL
+    // =======================
+    function buildFilterUrl(filters, json = false, page = 1, size = 50) {
+      const endpoint = json ? `${API_BASE}/download_all_json` : `${API_BASE}/download_all_csv`;
       const url = new URL(endpoint);
-      if (filters?.string) filters.string.forEach(f => {
-        url.searchParams.append("filter_col", f.col);
-        url.searchParams.append("filter_val", f.val);
-      });
-      if (filters?.number) filters.number.forEach(f => {
-        url.searchParams.append("num_col", f.col);
-        url.searchParams.append("num_op", f.op);
-        url.searchParams.append("num_val", f.val);
-      });
-      if (filters?.date) filters.date.forEach(f => {
-        url.searchParams.append("date_col", f.col);
-        if (f.from) url.searchParams.append("date_from", f.from);
-        if (f.to) url.searchParams.append("date_to", f.to);
-      });
-
-      if (json && all) {
+      if (filters?.branch) url.searchParams.append("branch", filters.branch);
+      if (filters?.period) url.searchParams.append("period", filters.period);
+      if (filters?.string && filters.string.length > 0) {
+        filters.string.forEach(f => {
+          url.searchParams.append("filter_col", f.col);
+          url.searchParams.append("filter_val", f.val);
+        });
+      }
+      if (json) {
         url.searchParams.append("page", page ?? 1);
         url.searchParams.append("size", size ?? 50);
       }
       return url.toString();
     }
 
-    // ---------------------
-    // 🔍 検索条件取得 ※唯一の定義
-    // ---------------------
     function getFilters() {
-      const nameVal = document.getElementById("filter-name").value.trim();
-      const deptVal = document.getElementById("filter-dept").value.trim();
+      const branchVal = document.getElementById("filter-branch").value.trim();
+      const periodVal = document.getElementById("filter-period").value;
       const accountVal = document.getElementById("filter-account").value.trim();
-      const numOp = document.getElementById("filter-num-op").value;
-      const numVal = document.getElementById("filter-num-val").value.trim();
-      const dateFrom = document.getElementById("filter-date-from").value;
-      const dateTo = document.getElementById("filter-date-to").value;
-
       return {
-        string: [
-          ...(nameVal ? [{ col: "社員名", val: nameVal }] : []),
-          ...(deptVal ? [{ col: "部署", val: deptVal }] : []),
-          ...(accountVal ? [{ col: "勘定科目", val: accountVal }] : []),
-        ],
-        number: numVal ? [{ col: "金額", op: numOp, val: numVal }] : [],
-        date: dateFrom || dateTo ? [{ col: "日付", from: dateFrom, to: dateTo }] : [],
+        branch: branchVal || null,
+        period: periodVal || null,
+        string: accountVal ? [{ col: "勘定科目", val: accountVal }] : []
       };
     }
 
-    // ---------------------
-    // 🔍 プレビュー（全CSV横断・ページング）
-    // ---------------------
-    async function loadPreviewPage() {
-      const area = document.getElementById("preview-area");
-      const thead = document.querySelector("#preview-table thead");
-      const tbody = document.querySelector("#preview-table tbody");
-      const info = document.getElementById("pvInfo");
-      const btnPrev = document.getElementById("pvPrev");
-      const btnNext = document.getElementById("pvNext");
+    // =======================
+    // 履歴一覧
+    // =======================
+    async function loadExpenses(branchFilter = "", periodFilter = "") {
+      let url = API_BASE;
+      const params = new URLSearchParams();
+      if (branchFilter) params.append("branch", branchFilter);
+      if (periodFilter) params.append("period", periodFilter);
+      const qs = params.toString();
+      if (qs) url += "?" + qs;
 
-      const url = buildFilterUrl(null, previewState.filters, true, true, previewState.page, previewState.size);
-
-      try {
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (!res.ok || !data.data) {
-          thead.innerHTML = "";
-          tbody.innerHTML = "";
-          document.getElementById("preview-count").textContent = "該当データはありません。";
-          area.style.display = "block";
-          btnPrev.disabled = btnNext.disabled = true;
-          info.textContent = "";
-          return;
-        }
-
-        const rows = data.data;
-        previewState.total = data.meta?.total ?? rows.length;
-        previewState.pages = data.meta?.pages ?? 1;
-
-        const customOrder = ["日付", "部署", "社員名", "金額", "勘定科目", "備考"];
-        const headers = rows[0] ? customOrder.filter(h => Object.keys(rows[0]).includes(h)) : customOrder;
-
-        thead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
-        tbody.innerHTML = rows.map(r =>
-          `<tr>${headers.map(h => `<td>${r?.[h] ?? ""}</td>`).join("")}</tr>`
-        ).join("");
-
-        info.textContent = `ページ ${previewState.page} / ${previewState.pages}（全 ${previewState.total} 件）`;
-        btnPrev.disabled = previewState.page <= 1;
-        btnNext.disabled = previewState.page >= previewState.pages;
-
-        document.getElementById("preview-count").textContent =
-          `表示件数：${rows.length} 件（1ページあたり ${previewState.size} 件）`;
-        area.style.display = "block";
-      } catch (e) {
-        alert("プレビューの取得に失敗しました。");
-        console.error(e);
-      }
-    }
-
-    // 「プレビュー表示」クリック → 1ページ目から読込（※リスナーは1つだけ）
-    document.getElementById("previewByFilters").addEventListener("click", async () => {
-      if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
-      previewState.filters = getFilters();
-      previewState.page = 1;
-      previewState.size = parseInt(document.getElementById("pvPageSize").value, 10) || 50;
-      await loadPreviewPage();
-    });
-
-    // プレビューページング操作
-    document.getElementById("pvPrev").addEventListener("click", async () => {
-      if (previewState.page > 1) {
-        previewState.page -= 1;
-        await loadPreviewPage();
-      }
-    });
-    document.getElementById("pvNext").addEventListener("click", async () => {
-      if (previewState.page < previewState.pages) {
-        previewState.page += 1;
-        await loadPreviewPage();
-      }
-    });
-    document.getElementById("pvPageSize").addEventListener("change", async (e) => {
-      previewState.size = parseInt(e.target.value, 10) || 50;
-      previewState.page = 1;
-      await loadPreviewPage();
-    });
-
-    // ---------------------
-    // 📦 条件付きCSVダウンロード（全CSV横断）
-    // ---------------------
-    document.getElementById("downloadByFilters").addEventListener("click", () => {
-      if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
-      const url = buildFilterUrl(null, getFilters(), true, false); // CSV
-      window.open(url, "_blank");
-    });
-
-    // ---------------------
-    // 📋 一覧取得・ページング（アップロード履歴）
-    // ---------------------
-    async function loadExpenses() {
-      const res = await fetch(API_BASE + "/");
+      const res = await apiFetch(url);
+      if (!res.ok) { alert("アップロード履歴の取得に失敗しました。"); return; }
       const json = await res.json();
       allData = Array.isArray(json) ? json : (json.data || []);
       currentPage = 1;
@@ -371,6 +336,11 @@
     function renderListTable() {
       const tbody = document.getElementById("expense-body");
       tbody.innerHTML = "";
+      if (!Array.isArray(allData) || allData.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" class="text-muted text-center">まだデータがありません。</td></tr>`;
+        document.getElementById("pageInfo").textContent = "";
+        return;
+      }
 
       const start = (currentPage - 1) * pageSize;
       const pageData = allData.slice(start, start + pageSize);
@@ -379,15 +349,19 @@
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td>${item.id}</td>
+          <td>${item.branch_name || "－"}</td>
+          <td>${item.period || "－"}</td>
           <td>${item.file_name}</td>
           <td>${item.row_count}</td>
           <td>${item.uploaded_at}</td>
           <td>
-            <button class="btn btn-sm btn-info me-1" onclick="showDetails(${item.id})">詳細</button>
-            <button class="btn btn-sm btn-success" onclick="downloadCSV(${item.id})">DL</button>
+            <button class="btn btn-sm btn-info me-1 btn-detail">詳細</button>
+            <button class="btn btn-sm btn-success btn-dl">DL</button>
           </td>
         `;
         tbody.appendChild(tr);
+        tr.querySelector(".btn-detail").addEventListener("click", () => showDetails(item.id));
+        tr.querySelector(".btn-dl").addEventListener("click", () => downloadCSV(item.branch_name, item.period));
       });
 
       const totalPages = Math.ceil(allData.length / pageSize) || 1;
@@ -396,32 +370,23 @@
       document.getElementById("nextPage").disabled = currentPage >= totalPages;
     }
 
-    document.getElementById("prevPage").addEventListener("click", () => {
-      if (currentPage > 1) {
-        currentPage--;
-        renderListTable();
-      }
+    document.getElementById("reload-history").addEventListener("click", async () => {
+      const branch = document.getElementById("history-branch").value.trim();
+      const period = document.getElementById("history-period").value;
+      await loadExpenses(branch, period);
     });
+    document.getElementById("prevPage").addEventListener("click", () => { if (currentPage > 1) { currentPage--; renderListTable(); }});
+    document.getElementById("nextPage").addEventListener("click", () => { const totalPages = Math.ceil(allData.length / pageSize) || 1; if (currentPage < totalPages) { currentPage++; renderListTable(); }});
 
-    document.getElementById("nextPage").addEventListener("click", () => {
-      const totalPages = Math.ceil(allData.length / pageSize) || 1;
-      if (currentPage < totalPages) {
-        currentPage++;
-        renderListTable();
-      }
-    });
-
-    // ---------------------
-    // 📄 詳細モーダル（ページング対応）
-    // ---------------------
+    // =======================
+    // 詳細モーダル
+    // =======================
     async function showDetails(datasetId, filterVal = "") {
       detailState.datasetId = datasetId;
       detailState.filterVal = filterVal;
       detailState.page = 1;
       detailState.size = parseInt(document.getElementById("detailPageSize").value, 10) || 20;
-
       await loadDetailPage();
-
       if (!detailState.modal) {
         detailState.modal = new bootstrap.Modal(document.getElementById("detailModal"));
       }
@@ -433,88 +398,101 @@
       let url = `${API_BASE}/${datasetId}?page=${page}&size=${size}`;
       if (filterVal) url += `&filter_col=${encodeURIComponent("社員名")}&filter_val=${encodeURIComponent(filterVal)}`;
 
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const data = await res.json();
       const body = document.getElementById("detail-body");
-
-      if (!res.ok) {
-        body.innerHTML = `<p class="text-danger">${data.detail}</p>`;
-        return;
-      }
+      if (!res.ok) { body.innerHTML = `<p class="text-danger">${data.detail}</p>`; return; }
 
       const rows = data.data || [];
-      const customOrder = ["日付", "部署", "社員名", "金額", "勘定科目", "備考"];
-      const headers = rows[0] ? customOrder.filter((h) => Object.keys(rows[0]).includes(h)) : [];
+      detailState.metaBranch = data.meta?.branch_name || rows[0]?.["支店名"] || "";
+      detailState.metaPeriod = data.meta?.period || rows[0]?.["対象月"] || "";
+      document.getElementById("detail-branch").textContent = detailState.metaBranch;
+      document.getElementById("detail-period").textContent = detailState.metaPeriod;
 
-      body.innerHTML =
-        rows.length
-          ? `<table class="table table-bordered table-sm">
-               <thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-               <tbody>${rows.map((r) => `<tr>${headers.map((h) => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>
-             </table>`
-          : "<p>該当データなし</p>";
+      const customOrder = ["支店名", "対象月", "日付", "金額", "勘定科目", "備考"];
+      const headers = rows[0] ? customOrder.filter(h => Object.keys(rows[0]).includes(h)) : [];
 
-      detailState.total = data.meta?.total_rows || rows.length;
-      document.getElementById("detailPageInfo").textContent =
-        `ページ ${page} / ${Math.ceil(Math.max(detailState.total, 1) / size)}（全 ${detailState.total} 件）`;
+      body.innerHTML = rows.length
+        ? `<table class="table table-bordered table-sm">
+             <thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+             <tbody>${rows.map(r => `<tr>${headers.map(h => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody>
+           </table>`
+        : "<p>該当データなし</p>";
+
+      detailState.total = data.meta?.total || rows.length;
+      const totalPages = Math.ceil(Math.max(detailState.total, 1) / size);
+      document.getElementById("detailPageInfo").textContent = `ページ ${page} / ${totalPages}（全 ${detailState.total} 件）`;
     }
 
-    document.getElementById("detailPrev").addEventListener("click", async () => {
-      if (detailState.page > 1) {
-        detailState.page -= 1;
-        await loadDetailPage();
-      }
-    });
-    document.getElementById("detailNext").addEventListener("click", async () => {
-      const maxPage = Math.ceil(Math.max(detailState.total, 1) / detailState.size);
-      if (detailState.page < maxPage) {
-        detailState.page += 1;
-        await loadDetailPage();
-      }
-    });
-    document.getElementById("detailPageSize").addEventListener("change", async (e) => {
-      detailState.size = parseInt(e.target.value, 10) || 20;
-      detailState.page = 1;
-      await loadDetailPage();
-    });
+    document.getElementById("detailPrev").addEventListener("click", async () => { if (detailState.page > 1) { detailState.page -= 1; await loadDetailPage(); }});
+    document.getElementById("detailNext").addEventListener("click", async () => { const maxPage = Math.ceil(Math.max(detailState.total, 1) / detailState.size); if (detailState.page < maxPage) { detailState.page += 1; await loadDetailPage(); }});
+    document.getElementById("detailPageSize").addEventListener("change", async (e) => { detailState.size = parseInt(e.target.value, 10) || 20; detailState.page = 1; await loadDetailPage(); });
 
-    // 詳細表示中のCSVダウンロード（社員名フィルタのみ反映）
     document.getElementById("downloadFilteredCSV").addEventListener("click", () => {
-      if (!detailState.datasetId) return;
-      const filters = { string: detailState.filterVal ? [{ col: "社員名", val: detailState.filterVal }] : [] };
-      const url = buildFilterUrl(detailState.datasetId, filters, false, false);
+      const url = new URL(`${API_BASE}/download_all_csv`);
+      if (detailState.metaBranch) url.searchParams.append("branch", detailState.metaBranch);
+      if (detailState.metaPeriod) url.searchParams.append("period", detailState.metaPeriod);
+      if (detailState.filterVal) {
+        url.searchParams.append("filter_col", "社員名");
+        url.searchParams.append("filter_val", detailState.filterVal);
+      }
       window.open(url, "_blank");
     });
 
-    // ---------------------
-    // 🔍 社員名検索（最新データセットで）
-    // ---------------------
-    document.getElementById("search-btn").addEventListener("click", async () => {
-      const keyword = document.getElementById("search-name").value.trim();
-      if (!keyword) return alert("社員名を入力してください");
-      if (allData.length === 0) return alert("まだCSVがアップロードされていません。");
-      await showDetails(allData[0].id, keyword);
-    });
+    // =======================
+    // フィルタ・プレビュー
+    // =======================
+    async function loadPreviewPage() {
+      const area = document.getElementById("preview-area");
+      const thead = document.querySelector("#preview-table thead");
+      const tbody = document.querySelector("#preview-table tbody");
+      const info = document.getElementById("pvInfo");
+      const btnPrev = document.getElementById("pvPrev");
+      const btnNext = document.getElementById("pvNext");
 
-    // ---------------------
-    // 📦 元CSVダウンロード（単一）
-    // ---------------------
-    function downloadCSV(id) {
-      window.open(`${API_BASE}/${id}/download`, "_blank");
+      const url = buildFilterUrl(previewState.filters, true, previewState.page, previewState.size);
+      const res = await apiFetch(url);
+      const data = await res.json();
+
+      if (!res.ok || !data.data || data.data.length === 0) {
+        thead.innerHTML = "";
+        tbody.innerHTML = "";
+        document.getElementById("preview-count").textContent = "該当データはありません。";
+        area.style.display = "block";
+        btnPrev.disabled = btnNext.disabled = true;
+        info.textContent = "";
+        return;
+      }
+
+      const rows = data.data;
+      previewState.total = data.meta?.total ?? rows.length;
+      previewState.pages = Math.ceil(previewState.total / previewState.size);
+
+      const customOrder = ["支店名", "対象月", "日付", "金額", "勘定科目", "備考"];
+      const headers = rows[0] ? customOrder.filter(h => Object.keys(rows[0]).includes(h)) : customOrder;
+
+      thead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
+      tbody.innerHTML = rows.map(r => `<tr>${headers.map(h => `<td>${r?.[h] ?? ""}</td>`).join("")}</tr>`).join("");
+
+      info.textContent = `ページ ${previewState.page} / ${previewState.pages}（全 ${previewState.total} 件）`;
+      btnPrev.disabled = previewState.page <= 1;
+      btnNext.disabled = previewState.page >= previewState.pages;
+      document.getElementById("preview-count").textContent = `表示件数：${rows.length} 件（1ページあたり ${previewState.size} 件）`;
+      area.style.display = "block";
     }
-    window.downloadCSV = downloadCSV; // onclick から参照可
 
-    // ---------------------
+    document.getElementById("previewByFilters").addEventListener("click", async () => { previewState.filters = getFilters(); previewState.page = 1; previewState.size = parseInt(document.getElementById("pvPageSize").value, 10) || 50; await loadPreviewPage(); });
+    document.getElementById("pvPrev").addEventListener("click", async () => { if (previewState.page > 1) { previewState.page -= 1; await loadPreviewPage(); }});
+    document.getElementById("pvNext").addEventListener("click", async () => { if (previewState.page < previewState.pages) { previewState.page += 1; await loadPreviewPage(); }});
+    document.getElementById("pvPageSize").addEventListener("change", async (e) => { previewState.size = parseInt(e.target.value, 10) || 50; previewState.page = 1; await loadPreviewPage(); });
+    document.getElementById("downloadByFilters").addEventListener("click", () => { const url = buildFilterUrl(getFilters(), false); window.open(url, "_blank"); });
+
+    // =======================
     // 初期ロード
-    // ---------------------
-    async function loadExpenses() {
-      const res = await fetch(API_BASE + "/");
-      const json = await res.json();
-      allData = Array.isArray(json) ? json : (json.data || []);
-      currentPage = 1;
-      renderListTable();
-    }
-    loadExpenses();
+    // =======================
+    window.addEventListener("DOMContentLoaded", async () => {
+      await loadExpenses();
+    });
   </script>
 </body>
 </html>
