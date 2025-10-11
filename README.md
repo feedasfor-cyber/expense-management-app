@@ -144,6 +144,10 @@ uvicorn main:app --reload
 履歴の「DL」で条件（支店／対象月）一致のCSVを一括ダウンロード
 中段「検索してプレビュー／CSVダウンロード」では、勘定科目等で絞込 → 画面プレビュー／CSV保存
 
+# サンプルデータの利用
+`sample_data/example.csv` をアップロード画面から選択してください。
+起動後すぐにプレビューやDL機能の確認が可能です。
+
 ### 7) APIテスト例
 ```
 curl -u admin:secret123 "http://127.0.0.1:8000/api/expenses"
