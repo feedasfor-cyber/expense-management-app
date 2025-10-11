@@ -1,4 +1,3 @@
-# app/routers/expenses.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -47,6 +46,7 @@ def validate_file_size(file: UploadFile):
         raise HTTPException(status_code=413, detail="ファイルサイズが10MBを超えています")
 
 def read_csv(file: UploadFile):
+    """CSVを読み込み、ヘッダーと行データ（dict形式）を返す"""
     validate_file_extension(file)
     validate_file_size(file)
     try:
@@ -73,7 +73,7 @@ def read_csv(file: UploadFile):
 
 
 # =====================================================
-# ① CSVアップロード
+# ① CSVアップロード（修正箇所あり ✨）
 # =====================================================
 @router.post("/", status_code=201)
 def upload_expense(
@@ -83,12 +83,14 @@ def upload_expense(
     db: Session = Depends(get_db),
     user: str = Depends(basic_auth),
 ):
+    # 対象月バリデーション
     if not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", period):
         raise HTTPException(status_code=400, detail="periodはYYYY-MM形式で指定してください。")
 
+    # CSV読み込み
     header, rows = read_csv(file)
 
-    # CSV 原本を保存（採点者の再現性確保）
+    # CSV原本をuploadsに保存（採点者の再現性確保）
     uploads_dir = ensure_uploads_dir()
     safe_name = sanitize_filename(file.filename or "uploaded.csv")
     save_name = f"{timestamp_prefix()}_{safe_name}"
@@ -99,7 +101,7 @@ def upload_expense(
         for r in rows:
             writer.writerow([r.get(h, "") for h in header])
 
-    # メタ + 明細(JSONテキスト) をSQLiteへ保存
+    # データセットメタ登録
     dataset = ExpenseDataset(
         file_name=safe_name,
         row_count=len(rows),
@@ -108,11 +110,25 @@ def upload_expense(
         period=period,
     )
     db.add(dataset)
-    db.flush()  # dataset.id 取得
+    db.flush()  # dataset.id を取得
 
-    row_objects = [ExpenseRow(dataset_id=dataset.id, row_data=json.dumps(r, ensure_ascii=False)) for r in rows]
-    if row_objects:
-        db.bulk_save_objects(row_objects)
+    # ✅ 各行に「支店名」「対象月」を付与して保存
+    extended_rows = []
+    for r in rows:
+        r_with_meta = {
+            "支店名": branch_name,
+            "対象月": period,
+            **r,  # ← CSVに含まれる列（金額・勘定科目・備考）
+        }
+        extended_rows.append(
+            ExpenseRow(
+                dataset_id=dataset.id,
+                row_data=json.dumps(r_with_meta, ensure_ascii=False)
+            )
+        )
+
+    if extended_rows:
+        db.bulk_save_objects(extended_rows)
 
     db.commit()
     db.refresh(dataset)
@@ -133,7 +149,6 @@ def upload_expense(
 
 # =====================================================
 # ② アップロード履歴一覧
-# 末尾あり/なしの両方で 200 を返すようにする
 # =====================================================
 @router.get("/")
 def list_datasets(
@@ -163,7 +178,7 @@ def list_datasets(
         ]
     }
 
-# ← これがないと /api/expenses （末尾なし）が 404 になる
+# ← 末尾スラッシュなし対応
 @router.get("", include_in_schema=False)
 def list_datasets_no_slash(
     branch: Optional[str] = Query(None),
@@ -176,7 +191,6 @@ def list_datasets_no_slash(
 
 # =====================================================
 # ③ フィルタ検索プレビュー（JSON）
-#   ※ 静的パスを {dataset_id} よりも先に定義する！
 # =====================================================
 @router.get("/download_all_json")
 def download_all_json(
@@ -191,28 +205,23 @@ def download_all_json(
     user: str = Depends(basic_auth),
 ):
     target_branch = branch_name or branch
-
-    # JSON テキストを LIKE で簡易検索（SQLite対応）
     stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
     if target_branch:
         stmt = stmt.where(ExpenseDataset.branch_name == target_branch)
     if period:
         stmt = stmt.where(ExpenseDataset.period == period)
     if filter_val:
-        # filter_col が指定されても、まずはテキスト検索（提出要件：SQLite簡易対応）
         stmt = stmt.where(ExpenseRow.row_data.like(f"%{filter_val}%"))
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     offset = (page - 1) * size
     rows = db.execute(stmt.offset(offset).limit(size)).all()
-
     parsed_rows = [json.loads(r[0]) for r in rows]
     return {"meta": {"total": total, "page": page, "size": size}, "data": parsed_rows}
 
 
 # =====================================================
-# ④ フィルタ検索CSVダウンロード（プレビュー画面）
-#   ※ 静的パスを {dataset_id} よりも先に定義する！
+# ④ フィルタ検索CSVダウンロード
 # =====================================================
 @router.get("/download_all_csv")
 def download_all_csv(
@@ -225,7 +234,6 @@ def download_all_csv(
     user: str = Depends(basic_auth),
 ):
     target_branch = branch_name or branch
-
     stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
     if target_branch:
         stmt = stmt.where(ExpenseDataset.branch_name == target_branch)
@@ -238,7 +246,6 @@ def download_all_csv(
     parsed = [json.loads(r[0]) for r in rows]
 
     if not parsed:
-        # 空ファイルを返すほうが UX は良いが、要件に合わせて 404
         raise HTTPException(status_code=404, detail="該当データがありません。")
 
     headers = list(parsed[0].keys())
@@ -261,8 +268,7 @@ def download_all_csv(
 
 
 # =====================================================
-# ⑤ データセット単位の CSV ダウンロード（履歴のDLボタン用）
-#   ※ 静的パスを {dataset_id} よりも先に定義する！
+# ⑤ データセット単位のCSVダウンロード
 # =====================================================
 @router.get("/dataset_csv/{dataset_id}")
 def download_dataset_csv(
@@ -302,7 +308,6 @@ def download_dataset_csv(
 
 # =====================================================
 # ⑥ 明細表示（ページング）
-#   ※ 動的パスは最後に定義して静的と衝突させない
 # =====================================================
 @router.get("/{dataset_id}")
 def get_dataset_details(

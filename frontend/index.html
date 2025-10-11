@@ -527,50 +527,63 @@
       window.open(url.toString(), "_blank");
     }
 
-    // ========= プレビュー =========
-    async function loadPreviewPage() {
-      const area = document.getElementById("preview-area");
-      const thead = document.querySelector("#preview-table thead");
-      const tbody = document.querySelector("#preview-table tbody");
-      const info = document.getElementById("pvInfo");
-      const btnPrev = document.getElementById("pvPrev");
-      const btnNext = document.getElementById("pvNext");
+// =======================
+// 🔍 プレビュー（支店名・対象月・金額・勘定科目・備考）
+// =======================
+async function loadPreviewPage() {
+  const area = document.getElementById("preview-area");
+  const thead = document.querySelector("#preview-table thead");
+  const tbody = document.querySelector("#preview-table tbody");
+  const info = document.getElementById("pvInfo");
+  const btnPrev = document.getElementById("pvPrev");
+  const btnNext = document.getElementById("pvNext");
 
-      const url = buildFilterUrl(previewState.filters, true, previewState.page, previewState.size);
-      const res = await apiFetch(url);
-      let data = {};
-      try {
-        data = await res.json();
-      } catch (_) {
-        data = {};
-      }
+  const url = buildFilterUrl(previewState.filters, true, previewState.page, previewState.size);
+  const res = await apiFetch(url);
 
-      if (!res.ok || !data.data || data.data.length === 0) {
-        thead.innerHTML = "";
-        tbody.innerHTML = "";
-        document.getElementById("preview-count").textContent = "該当データはありません。";
-        area.style.display = "block";
-        btnPrev.disabled = btnNext.disabled = true;
-        info.textContent = "";
-        return;
-      }
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_) {
+    data = {};
+  }
 
-      const rows = data.data;
-      previewState.total = data.meta?.total ?? rows.length;
-      previewState.pages = Math.ceil(Math.max(previewState.total, 1) / previewState.size);
+  // ❌ データがない場合の処理
+  if (!res.ok || !data.data || data.data.length === 0) {
+    thead.innerHTML = "";
+    tbody.innerHTML = "";
+    document.getElementById("preview-count").textContent = "該当データはありません。";
+    area.style.display = "block";
+    btnPrev.disabled = btnNext.disabled = true;
+    info.textContent = "";
+    return;
+  }
 
-      const customOrder = ["支店名", "対象月", "日付", "金額", "勘定科目", "備考"];
-      const headers = rows[0] ? customOrder.filter(h => Object.keys(rows[0]).includes(h)) : customOrder;
+  const rows = data.data;
+  previewState.total = data.meta?.total ?? rows.length;
+  previewState.pages = Math.ceil(Math.max(previewState.total, 1) / previewState.size);
 
-      thead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
-      tbody.innerHTML = rows.map(r => `<tr>${headers.map(h => `<td>${r?.[h] ?? ""}</td>`).join("")}</tr>`).join("");
+  // ✅ 表示順を固定
+  const headers = ["支店名", "対象月", "金額", "勘定科目", "備考"];
 
-      info.textContent = `ページ ${previewState.page} / ${previewState.pages}（全 ${previewState.total} 件）`;
-      btnPrev.disabled = previewState.page <= 1;
-      btnNext.disabled = previewState.page >= previewState.pages;
-      document.getElementById("preview-count").textContent = `表示件数：${rows.length} 件（1ページあたり ${previewState.size} 件）`;
-      area.style.display = "block";
-    }
+  // 🧭 ヘッダー生成
+  thead.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr>`;
+
+  // 🧾 データ行生成
+  tbody.innerHTML = rows
+    .map(r => `<tr>${headers.map(h => `<td>${r?.[h] ?? ""}</td>`).join("")}</tr>`)
+    .join("");
+
+  // 📝 ページング・件数表示
+  info.textContent = `ページ ${previewState.page} / ${previewState.pages}（全 ${previewState.total} 件）`;
+  btnPrev.disabled = previewState.page <= 1;
+  btnNext.disabled = previewState.page >= previewState.pages;
+  document.getElementById("preview-count").textContent =
+    `表示件数：${rows.length} 件（1ページあたり ${previewState.size} 件）`;
+
+  area.style.display = "block";
+}
+
 
     document.getElementById("previewByFilters").addEventListener("click", async () => {
       previewState.filters = getFilters();
