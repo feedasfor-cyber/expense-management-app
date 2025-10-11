@@ -1,1 +1,9 @@
 2025-10-09 16:33:47,501 [INFO] [UPLOAD SUCCESS] user=admin, file=111A.csv, branch=éDñyéxìX, period=2025-02, rows=2
+2025-10-11 22:35:05,298 [INFO] [UPLOAD SUCCESS] user=admin, file=test_expenses_minimal_10rows.csv, branch=éDñyéxìX, period=2025-10, rows=3
+2025-10-11 22:35:22,793 [INFO] [UPLOAD SUCCESS] user=admin, file=111A.csv, branch=ìåãûéxìX, period=2025-10, rows=2
+2025-10-11 22:39:02,812 [INFO] [UPLOAD SUCCESS] user=admin, file=111A.csv, branch=éDñyéxìX, period=2025-10, rows=2
+2025-10-11 22:42:41,729 [INFO] [UPLOAD SUCCESS] user=admin, file=111A.csv, branch=éDñyéxìX, period=2025-10, rows=2
+2025-10-11 22:47:50,315 [INFO] [UPLOAD SUCCESS] file=111A.csv, rows=2
+2025-10-11 22:51:38,535 [INFO] [UPLOAD SUCCESS] file=111A.csv, rows=2
+2025-10-11 23:02:15,060 [INFO] [UPLOAD] user=admin, file=111A.csv, branch=éDñyéxìX, period=2025-10, rows=2
+2025-10-11 23:15:05,558 [INFO] [UPLOAD] user=admin, file=111A.csv, branch=ëÂç„éxìX, period=2025-09, rows=2

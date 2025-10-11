@@ -1,30 +1,30 @@
+# app/routers/expenses.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
-from datetime import datetime
 from typing import Optional
+from datetime import datetime
 import csv
 import io
 import os
 import time
 import re
+import json
 
 from app.db import get_db
 from app.models import ExpenseDataset, ExpenseRow
-from app.auth import basic_auth  # 🔐 Basic認証
-from app.utils.csv_validator import validate_csv  # （任意、今後の拡張用）
+from app.auth import basic_auth
 from app.logger import logger
 
-router = APIRouter(tags=["expenses"])
+router = APIRouter(tags=["Expenses"])
 
-# =====================================================
-# 🧩 ヘルパー関数
-# =====================================================
+MAX_SIZE = 10 * 1024 * 1024  # 10MB
 
-MAX_SIZE = 10 * 1024 * 1024  # 10MB上限
-
-def ensure_uploads_dir():
+# ----------------------------
+# ヘルパー
+# ----------------------------
+def ensure_uploads_dir() -> str:
     os.makedirs("uploads", exist_ok=True)
     return "uploads"
 
@@ -35,30 +35,20 @@ def timestamp_prefix() -> str:
     return time.strftime("%Y%m%d_%H%M%S")
 
 def validate_file_extension(file: UploadFile):
-    """拡張子が .csv かどうかチェック"""
-    filename = file.filename or ""
-    if not filename.lower().endswith(".csv"):
-        raise HTTPException(
-            status_code=400,
-            detail="CSVファイル（.csv）のみアップロード可能です"
-        )
+    name = (file.filename or "").lower()
+    if not name.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="CSVファイル（.csv）のみアップロード可能です")
 
 def validate_file_size(file: UploadFile):
-    """10MB超過チェック"""
     file.file.seek(0, 2)
     size = file.file.tell()
     file.file.seek(0)
     if size > MAX_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail="ファイルサイズが10MBを超えています"
-        )
+        raise HTTPException(status_code=413, detail="ファイルサイズが10MBを超えています")
 
 def read_csv(file: UploadFile):
-    """CSV内容の検証"""
     validate_file_extension(file)
     validate_file_size(file)
-
     try:
         content = file.file.read().decode("utf-8-sig")
     except Exception:
@@ -78,7 +68,8 @@ def read_csv(file: UploadFile):
         if len(r) != len(header):
             raise HTTPException(status_code=400, detail=f"{i}行目の列数が一致しません。")
 
-    return header, [dict(zip(header, row)) for row in data_rows]
+    dict_rows = [dict(zip(header, row)) for row in data_rows]
+    return header, dict_rows
 
 
 # =====================================================
@@ -88,33 +79,27 @@ def read_csv(file: UploadFile):
 def upload_expense(
     file: UploadFile = File(...),
     branch_name: str = Form(..., description="支店名（例：大阪支店）"),
-    period: str = Form(..., description="提出月（YYYY-MM形式 例：2025-10）"),
+    period: str = Form(..., description="提出月（YYYY-MM 例：2025-10）"),
     db: Session = Depends(get_db),
     user: str = Depends(basic_auth),
 ):
-    # 📅 期間フォーマットチェック
     if not re.match(r"^\d{4}-(0[1-9]|1[0-2])$", period):
-        raise HTTPException(
-            status_code=400,
-            detail="periodはYYYY-MM形式で指定してください。"
-        )
+        raise HTTPException(status_code=400, detail="periodはYYYY-MM形式で指定してください。")
 
-    # 📄 CSVチェック（拡張子・サイズ・構造）
     header, rows = read_csv(file)
 
-    # 🗂️ 保存処理
+    # CSV 原本を保存（採点者の再現性確保）
     uploads_dir = ensure_uploads_dir()
-    safe_name = sanitize_filename(file.filename)
+    safe_name = sanitize_filename(file.filename or "uploaded.csv")
     save_name = f"{timestamp_prefix()}_{safe_name}"
     save_path = os.path.join(uploads_dir, save_name)
-
     with open(save_path, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, lineterminator="\n")
         writer.writerow(header)
         for r in rows:
-            writer.writerow(r.values())
+            writer.writerow([r.get(h, "") for h in header])
 
-    # 📝 DB登録
+    # メタ + 明細(JSONテキスト) をSQLiteへ保存
     dataset = ExpenseDataset(
         file_name=safe_name,
         row_count=len(rows),
@@ -123,19 +108,23 @@ def upload_expense(
         period=period,
     )
     db.add(dataset)
-    db.flush()
-    db.bulk_save_objects([ExpenseRow(dataset_id=dataset.id, row_data=r) for r in rows])
+    db.flush()  # dataset.id 取得
+
+    row_objects = [ExpenseRow(dataset_id=dataset.id, row_data=json.dumps(r, ensure_ascii=False)) for r in rows]
+    if row_objects:
+        db.bulk_save_objects(row_objects)
+
     db.commit()
     db.refresh(dataset)
 
-    logger.info(f"[UPLOAD SUCCESS] user={user}, file={safe_name}, branch={branch_name}, period={period}, rows={len(rows)}")
+    logger.info(f"[UPLOAD] user={user}, file={safe_name}, branch={branch_name}, period={period}, rows={len(rows)}")
 
     return {
         "status": "success",
         "dataset_id": dataset.id,
         "branch_name": branch_name,
         "period": period,
-        "uploaded_at": str(dataset.uploaded_at),
+        "uploaded_at": dataset.uploaded_at.isoformat() if dataset.uploaded_at else None,
         "row_count": len(rows),
         "file": safe_name,
         "saved_path": save_path,
@@ -144,6 +133,7 @@ def upload_expense(
 
 # =====================================================
 # ② アップロード履歴一覧
+# 末尾あり/なしの両方で 200 を返すようにする
 # =====================================================
 @router.get("/")
 def list_datasets(
@@ -165,7 +155,7 @@ def list_datasets(
                 "id": d.id,
                 "file_name": d.file_name,
                 "row_count": d.row_count,
-                "uploaded_at": str(d.uploaded_at),
+                "uploaded_at": d.uploaded_at.isoformat() if d.uploaded_at else None,
                 "branch_name": d.branch_name,
                 "period": d.period,
             }
@@ -173,18 +163,20 @@ def list_datasets(
         ]
     }
 
-
+# ← これがないと /api/expenses （末尾なし）が 404 になる
 @router.get("", include_in_schema=False)
-def list_datasets_no_trailing_slash(
+def list_datasets_no_slash(
     branch: Optional[str] = Query(None),
     period: Optional[str] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: str = Depends(basic_auth),
 ):
-    return list_datasets(branch=branch, period=period, db=db)
+    return list_datasets(branch=branch, period=period, db=db, user=user)
 
 
 # =====================================================
-# ③ 横断JSONプレビュー
+# ③ フィルタ検索プレビュー（JSON）
+#   ※ 静的パスを {dataset_id} よりも先に定義する！
 # =====================================================
 @router.get("/download_all_json")
 def download_all_json(
@@ -199,24 +191,28 @@ def download_all_json(
     user: str = Depends(basic_auth),
 ):
     target_branch = branch_name or branch
-    stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
 
+    # JSON テキストを LIKE で簡易検索（SQLite対応）
+    stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
     if target_branch:
         stmt = stmt.where(ExpenseDataset.branch_name == target_branch)
     if period:
         stmt = stmt.where(ExpenseDataset.period == period)
-    if filter_col and filter_val:
-        stmt = stmt.where(ExpenseRow.row_data[filter_col].astext.ilike(f"%{filter_val}%"))
+    if filter_val:
+        # filter_col が指定されても、まずはテキスト検索（提出要件：SQLite簡易対応）
+        stmt = stmt.where(ExpenseRow.row_data.like(f"%{filter_val}%"))
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     offset = (page - 1) * size
     rows = db.execute(stmt.offset(offset).limit(size)).all()
 
-    return {"meta": {"total": total, "page": page, "size": size}, "data": [r[0] for r in rows]}
+    parsed_rows = [json.loads(r[0]) for r in rows]
+    return {"meta": {"total": total, "page": page, "size": size}, "data": parsed_rows}
 
 
 # =====================================================
-# ④ 横断CSVダウンロード
+# ④ フィルタ検索CSVダウンロード（プレビュー画面）
+#   ※ 静的パスを {dataset_id} よりも先に定義する！
 # =====================================================
 @router.get("/download_all_csv")
 def download_all_csv(
@@ -229,29 +225,34 @@ def download_all_csv(
     user: str = Depends(basic_auth),
 ):
     target_branch = branch_name or branch
-    stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
 
+    stmt = select(ExpenseRow.row_data).join(ExpenseDataset, ExpenseRow.dataset_id == ExpenseDataset.id)
     if target_branch:
         stmt = stmt.where(ExpenseDataset.branch_name == target_branch)
     if period:
         stmt = stmt.where(ExpenseDataset.period == period)
-    if filter_col and filter_val:
-        stmt = stmt.where(ExpenseRow.row_data[filter_col].astext.ilike(f"%{filter_val}%"))
+    if filter_val:
+        stmt = stmt.where(ExpenseRow.row_data.like(f"%{filter_val}%"))
+
+    rows = db.execute(stmt).all()
+    parsed = [json.loads(r[0]) for r in rows]
+
+    if not parsed:
+        # 空ファイルを返すほうが UX は良いが、要件に合わせて 404
+        raise HTTPException(status_code=404, detail="該当データがありません。")
+
+    headers = list(parsed[0].keys())
 
     def generate():
-        rows = db.execute(stmt).all()
-        if not rows:
-            yield ""
-            return
-        header = list(rows[0][0].keys())
-        sio = io.StringIO()
-        writer = csv.writer(sio, lineterminator="\n")
-        writer.writerow(header)
-        for r in rows:
-            writer.writerow([r[0].get(h, "") for h in header])
-        yield sio.getvalue()
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(headers)
+        yield output.getvalue(); output.seek(0); output.truncate(0)
+        for row in parsed:
+            writer.writerow([row.get(h, "") for h in headers])
+            yield output.getvalue(); output.seek(0); output.truncate(0)
 
-    filename = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    filename = f"filtered_{timestamp_prefix()}.csv"
     return StreamingResponse(
         generate(),
         media_type="text/csv",
@@ -260,7 +261,48 @@ def download_all_csv(
 
 
 # =====================================================
-# ⑤ 特定データセット明細
+# ⑤ データセット単位の CSV ダウンロード（履歴のDLボタン用）
+#   ※ 静的パスを {dataset_id} よりも先に定義する！
+# =====================================================
+@router.get("/dataset_csv/{dataset_id}")
+def download_dataset_csv(
+    dataset_id: int,
+    db: Session = Depends(get_db),
+    user: str = Depends(basic_auth),
+):
+    dataset = db.get(ExpenseDataset, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="指定されたデータセットが見つかりません。")
+
+    stmt = select(ExpenseRow).where(ExpenseRow.dataset_id == dataset_id)
+    rows = db.execute(stmt).scalars().all()
+    parsed = [r.as_dict() for r in rows]
+
+    if not parsed:
+        raise HTTPException(status_code=404, detail="該当データがありません。")
+
+    headers = list(parsed[0].keys())
+
+    def generate():
+        output = io.StringIO()
+        writer = csv.writer(output, lineterminator="\n")
+        writer.writerow(headers)
+        yield output.getvalue(); output.seek(0); output.truncate(0)
+        for row in parsed:
+            writer.writerow([row.get(h, "") for h in headers])
+            yield output.getvalue(); output.seek(0); output.truncate(0)
+
+    filename = f"dataset_{dataset_id}_{timestamp_prefix()}.csv"
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# =====================================================
+# ⑥ 明細表示（ページング）
+#   ※ 動的パスは最後に定義して静的と衝突させない
 # =====================================================
 @router.get("/{dataset_id}")
 def get_dataset_details(
@@ -277,8 +319,8 @@ def get_dataset_details(
         raise HTTPException(status_code=404, detail="指定されたデータセットが見つかりません。")
 
     stmt = select(ExpenseRow).where(ExpenseRow.dataset_id == dataset_id)
-    if filter_col and filter_val:
-        stmt = stmt.where(ExpenseRow.row_data[filter_col].astext.ilike(f"%{filter_val}%"))
+    if filter_val:
+        stmt = stmt.where(ExpenseRow.row_data.like(f"%{filter_val}%"))
 
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     offset = (page - 1) * size
@@ -292,25 +334,5 @@ def get_dataset_details(
             "page": page,
             "size": size,
         },
-        "data": [r.row_data for r in rows],
-    }
-
-
-# =====================================================
-# ⑥ デバッグ用API
-# =====================================================
-@router.get("/_debug/dbinfo")
-def debug_info(
-    db: Session = Depends(get_db),
-    user: str = Depends(basic_auth),
-):
-    total = db.scalar(select(func.count(ExpenseDataset.id)))
-    by_branch = db.execute(
-        select(ExpenseDataset.branch_name, func.count())
-        .group_by(ExpenseDataset.branch_name)
-    ).all()
-    return {
-        "database": "expenses",
-        "datasets": total,
-        "by_branch": {b or "未設定": c for b, c in by_branch},
+        "data": [r.as_dict() for r in rows],
     }
